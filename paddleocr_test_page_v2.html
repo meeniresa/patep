@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PaddleOCR 瀏覽器測試頁 v2（獨立測試，不影響 PDF 編輯器）</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#666;--bd:#cfd4da;--ac:#1a56db;--bad:#b42318;--ok:#067647}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1d21;--fg:#e8e8ea;--mut:#9aa0a6;--bd:#3a3f46;--ac:#7aa7ff;--bad:#ff8a80;--ok:#6ee7a8}}
+body{margin:0;padding:12px;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif}
+h1{font-size:18px;margin:0 0 6px}h2{font-size:15px;margin:18px 0 6px;border-bottom:1px solid var(--bd);padding-bottom:4px}
+.box{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin:6px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
+label{display:inline-flex;gap:4px;align-items:center}
+button{padding:5px 10px;border:1px solid var(--bd);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer}
+button.primary{border-color:var(--ac);color:var(--ac)}button:disabled{opacity:.45;cursor:default}
+input[type=text],input[type=number],select{background:transparent;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:3px 6px}
+.mut{color:var(--mut)}.bad{color:var(--bad)}.ok{color:var(--ok)}
+table{border-collapse:collapse;font-size:12.5px;min-width:100%}th,td{border:1px solid var(--bd);padding:3px 6px;text-align:right;white-space:nowrap}
+th{position:sticky;top:0;background:var(--bg)}td.l,th.l{text-align:left}
+.scroll{overflow:auto;max-height:420px}
+#log{white-space:pre-wrap;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;max-height:220px;overflow:auto;border:1px solid var(--bd);border-radius:6px;padding:6px}
+svg{max-width:100%;height:auto;background:transparent}svg text{fill:var(--fg);font-size:11px}
+.feat label{margin-right:6px}
+.pane{border:1px solid var(--bd);border-radius:6px;padding:6px;max-height:340px;overflow:auto;white-space:pre-wrap;font:13px/1.6 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+.dm{background:rgba(217,119,6,.35)}.dw{background:rgba(220,38,38,.35)}.lowl{text-decoration:underline wavy #d97706;text-underline-offset:3px}
+#gtView{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:700px){#gtView{grid-template-columns:1fr}}
+#gtText{width:100%;height:220px;box-sizing:border-box;background:transparent;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:6px;font:13px/1.6 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+</head>
+<body>
+<h1>PaddleOCR 瀏覽器測試頁 v2</h1>
+<div class="mut">用途：在你的瀏覽器量測 PaddleOCR（官方瀏覽器 SDK）的載入時間、每頁耗時與準確度，並匯出數據。<b>這是獨立測試頁，不會修改 PDF 編輯器。</b>v2 新增：偵測邊長設定、正確稿檢視與修正。v2 新增功能只在模擬環境測過，SDK 辨識本身尚未在瀏覽器實測；若失敗請把「紀錄」區的文字貼給我。</div>
+
+<div class="box" id="envBox"></div>
+
+<h2>1. 載入檔案</h2>
+<div class="box">
+  <div class="row"><label>PDF（可多選）<input type="file" id="pdfFiles" accept="application/pdf" multiple></label></div>
+  <div class="row"><label>評估 JSON（v11 匯出，可多選；提供正確稿與關鍵欄位，以及 Tesseract 首次 OCR 對照）<input type="file" id="evalFiles" accept="application/json,.json" multiple></label></div>
+  <div id="mapBox" class="mut">尚未載入。</div>
+  <div class="row"><label><input type="checkbox" id="useTextLayerGt"> 沒有正確稿時，用 PDF 文字層當正確稿（僅適用 Word 轉 PDF 等原生電子檔）</label></div>
+</div>
+
+<h2>2. 引擎與量測設定</h2>
+<div class="box">
+  <div class="row">
+    <label>模型 <select id="ocrVer"><option value="PP-OCRv6">PP-OCRv6 small（約 30 MB）</option><option value="PP-OCRv5">PP-OCRv5 mobile（約 21 MB）</option><option value="PP-OCRv6-tiny">PP-OCRv6 tiny（最小）</option></select></label>
+    <label>後端 <select id="backend"><option value="auto">auto</option><option value="wasm">wasm</option><option value="webgpu">webgpu</option></select></label>
+    <label>影像倍率 <input type="number" id="scale" value="4.1667" step="0.0833" min="1" max="6" style="width:80px"></label>
+    <label>頁碼（空白＝全部；例 1-3,5） <input type="text" id="pageSel" style="width:110px"></label>
+    <label><input type="checkbox" id="onlyGt" checked> 只跑有正確稿的頁</label>
+  </div>
+  <div class="row">
+    <label>偵測邊長 limitSideLen（可填多個，逗號分隔，每頁每個值各跑一次） <input type="text" id="detLens" value="960" style="width:130px"></label>
+    <label>類型 <select id="detType"><option value="max">max（長邊上限）</option><option value="min">min（短邊下限）</option></select></label>
+  </div>
+  <div class="mut">依 SDK 原始碼：預設類型 max、邊長 960，整頁會先縮到長邊約 960 像素再偵測（原始碼閱讀，未實測）。調大可能提升小字準確度但更慢；填多個值會讓耗時成倍增加。</div>
+  <div class="row"><label>SDK 載入網址（留白＝自動依序嘗試 jsDelivr、esm.sh）<input type="text" id="sdkUrl" style="width:380px" placeholder="https://…/@paddleocr/paddleocr-js@0.4.2/+esm"></label></div>
+  <div class="row">
+    <button id="btnInit" class="primary">1) 載入 SDK 與模型</button>
+    <button id="btnRun" disabled>2) 開始逐頁辨識</button>
+    <button id="btnStop" disabled>停止</button>
+    <button id="btnReset">清除結果</button>
+    <span id="status" class="mut"></span>
+  </div>
+  <div class="mut">第一次載入會下載模型（來自 paddle-model-ecology.bj.bcebos.com）；耗時請看下方「載入」數據。辨識時頁面可能短暫無回應。</div>
+</div>
+
+<h2>3. 結果</h2>
+<div class="box">
+  <div id="summary" class="mut">尚無結果。</div>
+  <div class="scroll"><table id="resTable"></table></div>
+  <div class="row">
+    <button id="btnJson" disabled>匯出 JSON</button>
+    <button id="btnCsv" disabled>匯出 CSV（每頁一列）</button>
+  </div>
+</div>
+
+<h2>4. 圖表</h2>
+<div class="box"><div id="charts" class="mut">辨識後顯示。</div></div>
+
+<h2>5. 正確稿檢視與修正</h2>
+<div class="box">
+  <div class="row">
+    <label>評估檔 <select id="gtDoc"></select></label>
+    <label>頁 <select id="gtPage"></select></label>
+    <label>OCR 結果 <select id="gtRun"></select></label>
+  </div>
+  <div class="mut" id="gtInfo">請先在「1. 載入檔案」載入評估 JSON。</div>
+  <textarea id="gtText" spellcheck="false" placeholder="正確稿文字（可直接修改）"></textarea>
+  <div class="row">
+    <button id="gtApply" class="primary">套用修改</button>
+    <button id="gtRevert">還原本頁</button>
+    <button id="gtDiff">重新比對</button>
+    <button id="gtRecalc">用目前正確稿重算已有結果</button>
+    <button id="gtExport">匯出修正後評估 JSON（新檔）</button>
+  </div>
+  <div class="mut">橘底＝正確稿有、OCR 沒有或不同；紅底＝OCR 錯字或多出；橘色波浪底線＝該行信心分數低於 0.95。比對忽略空白與全半形差異。匯出只改各頁「正確稿文字」，關鍵欄位不會跟著改，且不會覆蓋原檔。</div>
+  <div id="gtView"><div><b>正確稿</b><div id="gtL" class="pane"></div></div><div><b>OCR 結果（逐行）</b><div id="gtR" class="pane"></div></div></div>
+</div>
+
+<h2>6. 紀錄</h2>
+<div id="log"></div>
+
+<script>
+/* ===== 純函式（量測與統計；可在 Node 測試）BEGIN ===== */
+function tpCompact(s){return String(s==null?'':s).replace(/\s+/g,'');}
+function tpNfkc(s){return tpCompact(s).normalize('NFKC');}
+function tpLev(a,b){
+  const n=a.length,m=b.length;if(!n)return m;if(!m)return n;
+  let prev=new Uint32Array(m+1),cur=new Uint32Array(m+1);
+  for(let j=0;j<=m;j++)prev[j]=j;
+  for(let i=1;i<=n;i++){
+    cur[0]=i;const ai=a.charCodeAt(i-1);
+    for(let j=1;j<=m;j++){
+      const c=ai===b.charCodeAt(j-1)?0:1;
+      const x=prev[j]+1,y=cur[j-1]+1,z=prev[j-1]+c;
+      cur[j]=x<y?(x<z?x:z):(y<z?y:z);
+    }
+    const t=prev;prev=cur;cur=t;
+  }
+  return prev[m];
+}
+function tpBag(a,b){const m=new Map();for(const c of a)m.set(c,(m.get(c)||0)+1);let ov=0;for(const c of b){const k=m.get(c);if(k>0){ov++;m.set(c,k-1);}}return ov;}
+function tpMetrics(gt,text){
+  const g=tpCompact(gt),t=tpCompact(text),gl=tpNfkc(gt),tl=tpNfkc(text);
+  const n=g.length,ds=tpLev(g,t),dl=tpLev(gl,tl);
+  return {gtChars:n,ocrChars:t.length,distStrict:ds,distLoose:dl,cerStrict:n?ds/n:null,cerLoose:n?dl/n:null,bagRecall:n?tpBag(g,t)/n:null,bagPrecision:t.length?tpBag(g,t)/t.length:null};
+}
+function tpKeyCheck(items,text){
+  const t=tpCompact(text),tl=tpNfkc(text);let strictOk=0,looseOk=0;const misses=[];
+  (items||[]).forEach(k=>{const e=tpCompact(k.text),el=tpNfkc(k.text);const s=t.includes(e),l=tl.includes(el);if(s)strictOk++;if(l)looseOk++;else misses.push({type:k.type,label:k.label,expected:k.text});});
+  return {total:(items||[]).length,strictOk,looseOk,misses};
+}
+function tpMean(a){a=a.filter(x=>Number.isFinite(x));return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;}
+function tpMedian(a){a=a.filter(x=>Number.isFinite(x)).sort((x,y)=>x-y);if(!a.length)return null;const h=a.length>>1;return a.length%2?a[h]:(a[h-1]+a[h])/2;}
+function tpParsePages(str,max){
+  const s=String(str||'').trim();if(!s)return null;const out=new Set();
+  s.split(/[,，\s]+/).filter(Boolean).forEach(p=>{const m=p.match(/^(\d+)(?:-(\d+))?$/);if(!m)return;let a=+m[1],b=m[2]?+m[2]:a;if(a>b)[a,b]=[b,a];for(let i=Math.max(1,a);i<=Math.min(max,b);i++)out.add(i);});
+  return out;
+}
+function tpCsvCell(v){if(v==null)return '';const s=String(v);return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function tpToCsv(rows,cols){return '\ufeff'+[cols.map(c=>c.h).join(',')].concat(rows.map(r=>cols.map(c=>tpCsvCell(c.f(r))).join(','))).join('\r\n');}
+function tpPairEval(docName,pdfStem,evalNames){
+  if(evalNames.includes(docName))return docName;
+  const a=evalNames.find(n=>pdfStem===n)||evalNames.find(n=>pdfStem.includes(n)||n.includes(pdfStem));return a||'';
+}
+function tpAggregate(rows,key){
+  const g=new Map();rows.forEach(r=>{const k=key(r);if(!g.has(k))g.set(k,[]);g.get(k).push(r);});
+  return [...g.entries()].map(([k,rs])=>{const w=rs.filter(r=>r.metrics);const n=w.reduce((a,r)=>a+r.metrics.gtChars,0);
+    const dl=w.reduce((a,r)=>a+r.metrics.distLoose,0),ds=w.reduce((a,r)=>a+r.metrics.distStrict,0);
+    const tw=w.filter(r=>r.tess);const tn=tw.reduce((a,r)=>a+r.tess.gtChars,0);
+    return {key:k,pages:rs.length,pagesWithGt:w.length,gtChars:n,cerLoose:n?dl/n:null,cerStrict:n?ds/n:null,
+      tessCerLoose:tn?tw.reduce((a,r)=>a+r.tess.distLoose,0)/tn:null,tessCerStrict:tn?tw.reduce((a,r)=>a+r.tess.distStrict,0)/tn:null,
+      keyOk:w.reduce((a,r)=>a+(r.key?r.key.looseOk:0),0),keyTotal:w.reduce((a,r)=>a+(r.key?r.key.total:0),0),
+      tessKeyOk:tw.reduce((a,r)=>a+(r.tessKey?r.tessKey.looseOk:0),0),
+      msMean:tpMean(rs.map(r=>r.timing.wallMs)),msMedian:tpMedian(rs.map(r=>r.timing.wallMs))};});
+}
+function tpDiffMask(gt,ocr,maxCells){
+  const a=Array.from(tpCompact(gt)),b=Array.from(tpCompact(ocr)),n=a.length,m=b.length;
+  const nf=new Map();const N=c=>{let v=nf.get(c);if(v===undefined){v=c.normalize('NFKC');nf.set(c,v);}return v;};
+  const eq=(x,y)=>x===y||N(x)===N(y);
+  const gtMiss=new Set(),ocrBad=new Set();
+  if(n*m>(maxCells||12e6))return {gtMiss,ocrBad,skipped:true,n,m};
+  const W=m+1,dp=new Uint16Array((n+1)*W);
+  for(let j=0;j<=m;j++)dp[j]=j;
+  for(let i=1;i<=n;i++){dp[i*W]=i;for(let j=1;j<=m;j++){
+    const c=eq(a[i-1],b[j-1])?0:1;
+    const x=dp[(i-1)*W+j]+1,y=dp[i*W+j-1]+1,z=dp[(i-1)*W+j-1]+c;
+    dp[i*W+j]=x<y?(x<z?x:z):(y<z?y:z);}}
+  let i=n,j=m,dist=dp[n*W+m];
+  while(i>0||j>0){
+    if(i>0&&j>0){const same=eq(a[i-1],b[j-1]);if(dp[i*W+j]===dp[(i-1)*W+j-1]+(same?0:1)){if(!same){gtMiss.add(i-1);ocrBad.add(j-1);}i--;j--;continue;}}
+    if(i>0&&dp[i*W+j]===dp[(i-1)*W+j]+1){gtMiss.add(i-1);i--;continue;}
+    ocrBad.add(j-1);j--;
+  }
+  return {gtMiss,ocrBad,skipped:false,n,m,dist};
+}
+/* ===== 純函式 END ===== */
+
+/* ===== 介面與流程 ===== */
+const $=id=>document.getElementById(id);
+const PAGE_TYPES=['未標示','純文字','表格','圖表／簡報','手寫／印章','掃描品質差'];
+const FEATURES=['有表格','有印章','有手寫','有黑框遮蔽','有圖表','有框線表單區','斜體或特殊字型','品質差'];
+const S={pdfs:new Map(),evals:new Map(),map:new Map(),sdk:null,sdkUrl:'',sdkLoadMs:null,ocr:null,initMs:null,initSummary:null,results:[],running:false,stop:false,settings:null};
+function log(m){const el=$('log');el.textContent+=`[${new Date().toLocaleTimeString()}] ${m}\n`;el.scrollTop=el.scrollHeight;}
+function setStatus(m){$('status').textContent=m;}
+const fmt=(v,d=1)=>v==null||!Number.isFinite(v)?'—':v.toFixed(d);
+const pct=v=>v==null||!Number.isFinite(v)?'—':(v*100).toFixed(1)+'%';
+
+function envInfo(){
+  const nav=navigator;
+  return {userAgent:nav.userAgent,hardwareConcurrency:nav.hardwareConcurrency||null,deviceMemoryGB:nav.deviceMemory||null,
+    crossOriginIsolated:!!self.crossOriginIsolated,webgpuApi:!!nav.gpu,protocol:location.protocol,
+    screen:`${screen.width}x${screen.height}@${devicePixelRatio}`,heapApi:!!(performance&&performance.memory)};
+}
+function renderEnv(){
+  const e=envInfo();const warn=e.protocol==='file:';
+  $('envBox').innerHTML=`<b>環境</b>：核心數 ${e.hardwareConcurrency??'?'}｜裝置記憶體 ${e.deviceMemoryGB??'?'} GB｜WebGPU API ${e.webgpuApi?'有':'無'}｜跨來源隔離 ${e.crossOriginIsolated?'是（可多執行緒）':'否（WASM 可能只用單執行緒）'}｜記憶體量測 ${e.heapApi?'可用（Chrome）':'不可用'}`+
+  (warn?`<div class="bad">目前以 file:// 開啟：PaddleOCR 官方 SDK 要求 HTTP(S) 來源，載入會失敗。請把本檔放到任何 https 靜態網站（例如 GitHub Pages）或本機網頁伺服器再開啟。</div>`:'');
+}
+renderEnv();
+
+/* --- 載入檔案 --- */
+$('pdfFiles').addEventListener('change',async ev=>{
+  for(const f of ev.target.files){
+    try{
+      const data=new Uint8Array(await f.arrayBuffer());
+      const doc=await pdfjsLib.getDocument({data}).promise;
+      S.pdfs.set(f.name,{file:f,doc,numPages:doc.numPages,stem:f.name.replace(/\.pdf$/i,'')});
+      log(`載入 PDF：${f.name}（${doc.numPages} 頁）`);
+    }catch(e){log(`PDF 載入失敗 ${f.name}：${e.message||e}`);}
+  }
+  renderMap();
+});
+$('evalFiles').addEventListener('change',async ev=>{
+  for(const f of ev.target.files){
+    try{
+      const d=JSON.parse(await f.text());
+      if(d.format!=='pdf-editor-ocr-eval'||!d.document||!Array.isArray(d.pages))throw new Error('不是 v11 的評估匯出檔');
+      const pages={};
+      d.pages.forEach(p=>{
+        const gt=p.groundTruth&&p.groundTruth.text?p.groundTruth.text:'';
+        const base=(p.sources||[]).find(s=>/^首次 OCR/.test(s.name||''))||(p.sources||[])[0]||null;
+        pages[p.page]={gt,keyItems:p.keyItems||[],tessText:base&&base.text!=null?base.text:null,tessName:base?base.name:null,pageType:p.pageType||null};
+      });
+      S.evals.set(d.document.name,{name:d.document.name,pages,file:f.name,app:d.app,raw:d});
+      log(`載入評估檔：${f.name}（${d.document.name}，${Object.keys(pages).length} 頁，匯出程式 ${d.app||'?'}）`);
+    }catch(e){log(`評估檔載入失敗 ${f.name}：${e.message||e}`);}
+  }
+  renderMap();refreshGtDocs();
+});
+function renderMap(){
+  const evalNames=[...S.evals.keys()];
+  S.pdfs.forEach((p,name)=>{if(!S.map.has(name))S.map.set(name,tpPairEval('',p.stem,evalNames));});
+  if(!S.pdfs.size){$('mapBox').textContent='尚未載入 PDF。';return;}
+  const rows=[...S.pdfs.entries()].map(([name,p])=>{
+    const opts=['<option value="">（無評估檔）</option>'].concat(evalNames.map(n=>`<option value="${n}" ${S.map.get(name)===n?'selected':''}>${n}</option>`)).join('');
+    return `<div class="row"><span>${name}（${p.numPages} 頁）</span><span class="mut">對應評估檔：</span><select data-pdf="${name}">${opts}</select></div>`;
+  }).join('');
+  $('mapBox').innerHTML=rows;
+  $('mapBox').querySelectorAll('select').forEach(sel=>sel.addEventListener('change',()=>S.map.set(sel.dataset.pdf,sel.value)));
+}
+
+/* --- 載入 SDK 與模型 --- */
+async function loadSdk(){
+  const urls=[];const custom=$('sdkUrl').value.trim();
+  if(custom)urls.push(custom);
+  urls.push('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm','https://esm.sh/@paddleocr/paddleocr-js@0.4.2');
+  let lastErr=null;
+  for(const u of urls){
+    const t0=performance.now();
+    try{log(`載入 SDK：${u}`);const mod=await import(u);if(!mod.PaddleOCR)throw new Error('模組沒有 PaddleOCR');S.sdk=mod;S.sdkUrl=u;S.sdkLoadMs=performance.now()-t0;log(`SDK 載入完成（${Math.round(S.sdkLoadMs)} ms）`);return;}
+    catch(e){lastErr=e;log(`SDK 載入失敗：${e&&e.message||e}`);}
+  }
+  throw lastErr||new Error('SDK 載入失敗');
+}
+$('btnInit').addEventListener('click',async()=>{
+  $('btnInit').disabled=true;setStatus('載入中…');
+  try{
+    if(S.ocr){try{await S.ocr.dispose();}catch(_){}S.ocr=null;}
+    if(!S.sdk)await loadSdk();
+    const ver=$('ocrVer').value,backend=$('backend').value;
+    const opt={lang:'ch',ortOptions:{backend}};
+    if(ver==='PP-OCRv5')opt.ocrVersion='PP-OCRv5';
+    else if(ver==='PP-OCRv6')opt.ocrVersion='PP-OCRv6';
+    else{opt.textDetectionModelName='PP-OCRv6_tiny_det';opt.textRecognitionModelName='PP-OCRv6_tiny_rec';}
+    const t0=performance.now();
+    log(`建立引擎：${JSON.stringify(opt)}`);
+    const ocr=await S.sdk.PaddleOCR.create(opt);
+    S.initMs=performance.now()-t0;S.ocr=ocr;
+    let sum=null;try{sum=ocr.getInitializationSummary?ocr.getInitializationSummary():null;}catch(_){}
+    S.initSummary=sum;S.settings={model:ver,backendRequested:backend,scale:+$('scale').value,sdkUrl:S.sdkUrl};
+    log(`引擎就緒：${Math.round(S.initMs)} ms；後端=${sum?sum.backend:'?'}；det=${sum?sum.detProvider:'?'}；rec=${sum?sum.recProvider:'?'}；WebGPU 可用=${sum?sum.webgpuAvailable:'?'}`);
+    if(sum&&sum.assets)log('模型資源：'+JSON.stringify(sum.assets));
+    setStatus(`引擎就緒（初始化 ${Math.round(S.initMs)} ms）`);$('btnRun').disabled=false;
+  }catch(e){log(`初始化失敗：${e&&e.stack||e}`);setStatus('初始化失敗，請看紀錄');}
+  $('btnInit').disabled=false;
+});
+
+/* --- 逐頁辨識 --- */
+async function renderCanvas(page,scale){
+  const vp=page.getViewport({scale});const c=document.createElement('canvas');c.width=Math.ceil(vp.width);c.height=Math.ceil(vp.height);
+  await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;return c;
+}
+async function textLayerOf(page){
+  try{const tc=await page.getTextContent();return tc.items.map(i=>i.str).join('');}catch(_){return '';}
+}
+function heapMB(){return performance&&performance.memory?performance.memory.usedJSHeapSize/1048576:null;}
+$('btnRun').addEventListener('click',async()=>{
+  if(!S.ocr||S.running)return;
+  S.running=true;S.stop=false;$('btnRun').disabled=true;$('btnStop').disabled=false;$('btnInit').disabled=true;
+  const scale=+$('scale').value||4.1667;S.settings.scale=scale;
+  const lens=String($('detLens').value||'960').split(/[,，\s]+/).map(Number).filter(x=>Number.isFinite(x)&&x>=32);if(!lens.length)lens.push(960);
+  const detType=$('detType').value;S.settings.detLens=lens;S.settings.detType=detType;
+  const jobs=[];
+  S.pdfs.forEach((p,name)=>{
+    const ev=S.evals.get(S.map.get(name)||'');const sel=tpParsePages($('pageSel').value,p.numPages);
+    for(let n=1;n<=p.numPages;n++){
+      if(sel&&!sel.has(n))continue;
+      const e=ev&&ev.pages[n];if($('onlyGt').checked&&!$('useTextLayerGt').checked&&!(e&&e.gt))continue;
+      lens.forEach(L=>jobs.push({name,p,n,ev,e,L}));
+    }
+  });
+  log(`開始：${jobs.length} 次辨識，倍率 ${scale}×，偵測邊長 ${lens.join('/')}（${detType}）`);
+  let done=0;
+  for(const j of jobs){
+    if(S.stop){log('已停止');break;}
+    setStatus(`辨識中：${j.name} 第 ${j.n} 頁，邊長 ${j.L}（${done+1}/${jobs.length}）`);
+    await new Promise(r=>setTimeout(r,30));
+    const row={doc:j.ev?j.ev.name:j.p.stem,pdf:j.name,page:j.n,pageType:'未標示',features:[],note:''};
+    try{
+      const page=await j.p.doc.getPage(j.n);
+      const h0=heapMB();const t0=performance.now();
+      const canvas=await renderCanvas(page,scale);const tr=performance.now();
+      const res=await S.ocr.predict(canvas,{textDetLimitSideLen:j.L,textDetLimitType:detType});const t1=performance.now();
+      const r=Array.isArray(res)?res[0]:res;
+      const items=(r.items||[]).map(i=>({t:i.text,s:i.score,poly:i.poly}));
+      const text=items.map(i=>i.t).join('');
+      row.detLimit=j.L;row.detType=detType;row.imageSize=`${canvas.width}x${canvas.height}`;canvas.width=0;canvas.height=0;
+      row.items=items;row.text=text;row.lines=items.length;row.chars=tpCompact(text).length;
+      row.timing={renderMs:tr-t0,detMs:r.metrics?r.metrics.detMs:null,recMs:r.metrics?r.metrics.recMs:null,totalMs:r.metrics?r.metrics.totalMs:null,wallMs:t1-t0,predictWallMs:t1-tr,isFirstPage:S.results.length===0};
+      row.runtime=r.runtime||null;row.heapMB=heapMB();row.heapBeforeMB=h0;
+      let gt=j.e&&j.e.gt?j.e.gt:'',gtSrc=gt?'評估檔':'';
+      if(!gt&&$('useTextLayerGt').checked){const tl=await textLayerOf(page);if(tpCompact(tl).length>=50){gt=tl;gtSrc='文字層';}}
+      row.gtSource=gtSrc;
+      if(gt){
+        row.metrics=tpMetrics(gt,text);
+        const keys=j.e&&j.e.keyItems&&j.e.keyItems.length?j.e.keyItems:[];row.key=keys.length?tpKeyCheck(keys,text):{total:0,strictOk:0,looseOk:0,misses:[]};
+        if(j.e&&j.e.tessText!=null){row.tess=tpMetrics(gt,j.e.tessText);row.tessKey=keys.length?tpKeyCheck(keys,j.e.tessText):{total:0,strictOk:0,looseOk:0,misses:[]};row.tessName=j.e.tessName;}
+      }
+      if(j.e&&j.e.pageType&&PAGE_TYPES.includes(j.e.pageType))row.pageType=j.e.pageType;
+      log(`${j.name} 第 ${j.n} 頁［邊長 ${j.L}］：${row.lines} 行、${row.chars} 字、${Math.round(row.timing.wallMs)} ms（偵測 ${fmt(row.timing.detMs,0)}、辨識 ${fmt(row.timing.recMs,0)}）`+(row.metrics?`｜對照錯字率 ${pct(row.metrics.cerLoose)}`+(row.tess?`（Tesseract ${pct(row.tess.cerLoose)}）`:''):''));
+    }catch(e){row.error=String(e&&e.message||e);row.timing={renderMs:null,detMs:null,recMs:null,totalMs:null,wallMs:null};log(`${j.name} 第 ${j.n} 頁失敗：${row.error}`);}
+    S.results.push(row);done++;renderResults();
+  }
+  S.running=false;$('btnRun').disabled=false;$('btnStop').disabled=true;$('btnInit').disabled=false;
+  setStatus(`完成：${done} 頁`);renderResults();
+});
+$('btnStop').addEventListener('click',()=>{S.stop=true;});
+$('btnReset').addEventListener('click',()=>{if(S.running)return;S.results=[];renderResults();log('已清除結果');});
+
+/* --- 結果表、彙總、圖表 --- */
+function renderResults(){
+  const R=S.results;
+  const cols=[['文件','l',r=>r.doc],['頁','',r=>r.page],['偵測邊長','',r=>r.detLimit??'—'],['正確稿字數','',r=>r.metrics?r.metrics.gtChars:'—'],['行數','',r=>r.lines??'—'],
+    ['耗時 ms','',r=>fmt(r.timing.wallMs,0)],['偵測 ms','',r=>fmt(r.timing.detMs,0)],['辨識 ms','',r=>fmt(r.timing.recMs,0)],
+    ['Paddle 對照錯字率','',r=>r.metrics?pct(r.metrics.cerLoose):'—'],['Paddle 嚴格','',r=>r.metrics?pct(r.metrics.cerStrict):'—'],
+    ['Tesseract 對照','',r=>r.tess?pct(r.tess.cerLoose):'—'],['關鍵欄位 Paddle','',r=>r.key&&r.key.total?`${r.key.looseOk}/${r.key.total}`:'—'],['關鍵欄位 Tess','',r=>r.tessKey&&r.tessKey.total?`${r.tessKey.looseOk}/${r.tessKey.total}`:'—'],
+    ['正確稿來源','l',r=>r.gtSource||'—'],['頁面類型','l',null],['特徵','l',null],['備註','l',null]];
+  const t=$('resTable');t.innerHTML='';
+  const hr=document.createElement('tr');cols.forEach(c=>{const th=document.createElement('th');th.textContent=c[0];if(c[1])th.className=c[1];hr.appendChild(th);});t.appendChild(hr);
+  R.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    cols.forEach(c=>{const td=document.createElement('td');if(c[1])td.className=c[1];
+      if(c[0]==='頁面類型'){const s=document.createElement('select');PAGE_TYPES.forEach(p=>{const o=document.createElement('option');o.textContent=p;if(p===r.pageType)o.selected=true;s.appendChild(o);});s.addEventListener('change',()=>{r.pageType=s.value;renderSummaryAndCharts();});td.appendChild(s);}
+      else if(c[0]==='特徵'){const d=document.createElement('details');const sm=document.createElement('summary');sm.textContent=r.features.length?r.features.join('、'):'（無）';d.appendChild(sm);
+        const w=document.createElement('div');w.className='feat';FEATURES.forEach(f=>{const l=document.createElement('label');const cb=document.createElement('input');cb.type='checkbox';cb.checked=r.features.includes(f);cb.addEventListener('change',()=>{r.features=FEATURES.filter(x=>(x===f?cb.checked:r.features.includes(x)));sm.textContent=r.features.length?r.features.join('、'):'（無）';});l.appendChild(cb);l.appendChild(document.createTextNode(f));w.appendChild(l);});d.appendChild(w);td.appendChild(d);}
+      else if(c[0]==='備註'){const inp=document.createElement('input');inp.type='text';inp.value=r.note||'';inp.style.width='140px';inp.addEventListener('input',()=>{r.note=inp.value;});td.appendChild(inp);}
+      else td.textContent=r.error&&c[0]==='行數'?'錯誤':String(c[2](r));
+      tr.appendChild(td);});
+    t.appendChild(tr);
+  });
+  $('btnJson').disabled=!R.length;$('btnCsv').disabled=!R.length;
+  renderSummaryAndCharts();if(typeof refreshGtRuns==='function')refreshGtRuns();
+}
+function barChart(title,labels,series,fmtY){
+  const W=Math.max(520,labels.length*34+90),H=240,pl=48,pb=70,pt=26,pr=10;
+  const maxV=Math.max(1e-9,...series.flatMap(s=>s.values.filter(v=>Number.isFinite(v))));
+  const bw=(W-pl-pr)/labels.length,gw=bw/(series.length+0.6);
+  let g=`<svg viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${title}"><text x="${pl}" y="14" style="font-weight:600">${title}</text>`;
+  for(let k=0;k<=4;k++){const y=pt+(H-pt-pb)*(1-k/4);g+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="currentColor" opacity=".15"/><text x="${pl-4}" y="${y+4}" text-anchor="end">${fmtY(maxV*k/4)}</text>`;}
+  labels.forEach((lb,i)=>{series.forEach((s,j)=>{const v=s.values[i];if(!Number.isFinite(v))return;const h=(H-pt-pb)*v/maxV;g+=`<rect x="${pl+i*bw+gw*0.3+j*gw}" y="${H-pb-h}" width="${gw*0.9}" height="${h}" fill="${s.color}"><title>${lb}｜${s.name}：${fmtY(v)}</title></rect>`;});
+    g+=`<text transform="translate(${pl+i*bw+bw/2},${H-pb+10}) rotate(55)" text-anchor="start">${lb}</text>`;});
+  series.forEach((s,j)=>{g+=`<rect x="${W-pr-120}" y="${4+j*13}" width="9" height="9" fill="${s.color}"/><text x="${W-pr-108}" y="${12+j*13}">${s.name}</text>`;});
+  return g+'</svg>';
+}
+function scatterChart(title,pts,xl,yl){
+  const W=520,H=240,pl=52,pb=36,pt=26,pr=12;const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);if(!pts.length)return '';
+  const mx=Math.max(...xs)*1.05||1,my=Math.max(...ys)*1.05||1;
+  let g=`<svg viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${title}"><text x="${pl}" y="14" style="font-weight:600">${title}</text><rect x="${pl}" y="${pt}" width="${W-pl-pr}" height="${H-pt-pb}" fill="none" stroke="currentColor" opacity=".25"/>`;
+  pts.forEach(p=>{g+=`<circle cx="${pl+(W-pl-pr)*p.x/mx}" cy="${H-pb-(H-pt-pb)*p.y/my}" r="3.5" fill="#1a56db" opacity=".8"><title>${p.l}</title></circle>`;});
+  g+=`<text x="${W/2}" y="${H-6}" text-anchor="middle">${xl}（最大 ${Math.round(mx)}）</text><text transform="translate(12,${H/2}) rotate(-90)" text-anchor="middle">${yl}（最大 ${Math.round(my)}）</text>`;
+  return g+'</svg>';
+}
+function renderSummaryAndCharts(){
+  const R=S.results.filter(r=>!r.error);const el=$('summary'),ch=$('charts');
+  if(!R.length){el.textContent='尚無結果。';ch.textContent='辨識後顯示。';return;}
+  const all=tpAggregate(R,()=>'全部')[0];
+  const first=R.find(r=>r.timing.isFirstPage),rest=R.filter(r=>!r.timing.isFirstPage);
+  let html=`<div>頁數 ${all.pages}（有正確稿 ${all.pagesWithGt}）｜<b>耗時</b>：平均 ${fmt(all.msMean,0)} ms、中位數 ${fmt(all.msMedian,0)} ms`+(first?`；第一頁 ${fmt(first.timing.wallMs,0)} ms，之後平均 ${fmt(tpMean(rest.map(r=>r.timing.wallMs)),0)} ms`:'')+`｜載入：SDK ${fmt(S.sdkLoadMs,0)} ms、模型初始化 ${fmt(S.initMs,0)} ms｜記憶體（JS 堆積）${fmt(R[R.length-1].heapMB,0)} MB</div>`;
+  html+=`<div><b>準確度（有正確稿的頁，字元加總）</b>：Paddle 對照錯字率 ${pct(all.cerLoose)}、嚴格 ${pct(all.cerStrict)}；Tesseract 首次 OCR 對照 ${pct(all.tessCerLoose)}、嚴格 ${pct(all.tessCerStrict)}｜關鍵欄位 Paddle ${all.keyOk}/${all.keyTotal}、Tesseract ${all.tessKeyOk}/${all.keyTotal}</div>`;
+  const byType=tpAggregate(R,r=>r.pageType),byDoc=tpAggregate(R,r=>r.doc);
+  const tb=(rows,h)=>`<table><tr><th class="l">${h}</th><th>頁</th><th>有正確稿</th><th>字數</th><th>Paddle 對照</th><th>Tesseract 對照</th><th>關鍵 Paddle/總數</th><th>耗時中位數 ms</th></tr>`+rows.map(a=>`<tr><td class="l">${a.key}</td><td>${a.pages}</td><td>${a.pagesWithGt}</td><td>${a.gtChars}</td><td>${pct(a.cerLoose)}</td><td>${pct(a.tessCerLoose)}</td><td>${a.keyOk}/${a.keyTotal}</td><td>${fmt(a.msMedian,0)}</td></tr>`).join('')+'</table>';
+  const lims=new Set(R.map(r=>r.detLimit));const byLim=lims.size>1?tpAggregate(R,r=>String(r.detLimit)):null;
+  html+=`<div class="scroll" style="max-height:none">`+(byLim?`${tb(byLim,'偵測邊長（同一頁會重複計入各邊長）')}<br>`:'')+`${tb(byDoc,'文件')}<br>${tb(byType,'頁面類型')}</div>`;
+  el.innerHTML=html;
+  const lab=R.map(r=>`${r.doc.slice(0,8)}-${r.page}`);
+  let c='';
+  c+=barChart('各頁對照錯字率：Paddle 與 Tesseract',lab,[{name:'Paddle',color:'#1a56db',values:R.map(r=>r.metrics?r.metrics.cerLoose:NaN)},{name:'Tesseract',color:'#d97706',values:R.map(r=>r.tess?r.tess.cerLoose:NaN)}],v=>(v*100).toFixed(0)+'%');
+  c+='<br>'+barChart('各頁耗時（ms）：偵測＋辨識＋轉影像',lab,[{name:'轉影像',color:'#6b7280',values:R.map(r=>r.timing.renderMs)},{name:'偵測',color:'#1a56db',values:R.map(r=>r.timing.detMs)},{name:'辨識',color:'#059669',values:R.map(r=>r.timing.recMs)}],v=>Math.round(v)+'');
+  c+='<br>'+scatterChart('字數與耗時',R.map(r=>({x:r.chars,y:r.timing.wallMs,l:`${r.doc} 第 ${r.page} 頁：${r.chars} 字、${Math.round(r.timing.wallMs)} ms`})),'辨識字數','耗時 ms');
+  ch.innerHTML=c;
+}
+
+/* --- 匯出 --- */
+function download(name,text,mime){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);}
+function stamp(){return new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);}
+$('btnJson').addEventListener('click',()=>{
+  const out={format:'paddleocr-browser-test',schema:1,app:'paddleocr_test_page_v2',exportedAt:new Date().toISOString(),device:envInfo(),settings:S.settings,
+    timing:{sdkLoadMs:S.sdkLoadMs,initMs:S.initMs,initSummary:S.initSummary},
+    summary:tpAggregate(S.results.filter(r=>!r.error),()=>'全部')[0]||null,
+    pages:S.results.map(r=>({doc:r.doc,pdf:r.pdf,page:r.page,pageType:r.pageType,features:r.features,note:r.note,error:r.error||null,detLimit:r.detLimit??null,detType:r.detType||null,imageSize:r.imageSize,lines:r.lines,chars:r.chars,gtSource:r.gtSource||null,
+      timing:r.timing,runtime:r.runtime,heapMB:r.heapMB,metrics:r.metrics||null,key:r.key||null,tesseract:r.tess?{name:r.tessName,metrics:r.tess,key:r.tessKey}:null,text:r.text,items:r.items}))};
+  download(`paddleocr-test_${S.results.length}頁_${stamp()}.json`,JSON.stringify(out),'application/json');
+});
+$('btnCsv').addEventListener('click',()=>{
+  const cols=[{h:'文件',f:r=>r.doc},{h:'頁',f:r=>r.page},{h:'頁面類型',f:r=>r.pageType},{h:'特徵',f:r=>r.features.join('|')},{h:'備註',f:r=>r.note},{h:'偵測邊長',f:r=>r.detLimit},{h:'行數',f:r=>r.lines},{h:'辨識字數',f:r=>r.chars},
+    {h:'正確稿字數',f:r=>r.metrics&&r.metrics.gtChars},{h:'正確稿來源',f:r=>r.gtSource},{h:'Paddle對照錯字率',f:r=>r.metrics&&r.metrics.cerLoose},{h:'Paddle嚴格錯字率',f:r=>r.metrics&&r.metrics.cerStrict},{h:'Paddle字元召回',f:r=>r.metrics&&r.metrics.bagRecall},
+    {h:'Tesseract對照錯字率',f:r=>r.tess&&r.tess.cerLoose},{h:'Tesseract嚴格錯字率',f:r=>r.tess&&r.tess.cerStrict},{h:'關鍵欄位Paddle正確',f:r=>r.key&&r.key.looseOk},{h:'關鍵欄位總數',f:r=>r.key&&r.key.total},{h:'關鍵欄位Tesseract正確',f:r=>r.tessKey&&r.tessKey.looseOk},
+    {h:'總耗時ms',f:r=>r.timing.wallMs},{h:'轉影像ms',f:r=>r.timing.renderMs},{h:'偵測ms',f:r=>r.timing.detMs},{h:'辨識ms',f:r=>r.timing.recMs},{h:'是否第一頁',f:r=>r.timing.isFirstPage},{h:'JS堆積MB',f:r=>r.heapMB},{h:'後端',f:r=>r.runtime&&r.runtime.detProvider},{h:'錯誤',f:r=>r.error}];
+  download(`paddleocr-test_${S.results.length}頁_${stamp()}.csv`,tpToCsv(S.results,cols),'text/csv');
+});
+
+/* --- 正確稿檢視與修正 --- */
+S.edits=new Map();S.gtOrig=new Map();
+const gtKey=(d,p)=>d+'\u0001'+p;
+const escH=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function gtSelEval(){return S.evals.get($('gtDoc').value)||null;}
+function refreshGtDocs(){
+  const sel=$('gtDoc'),cur=sel.value;const names=[...S.evals.keys()];
+  sel.innerHTML=names.map(n=>`<option value="${escH(n)}">${escH(n)}</option>`).join('');
+  if(names.includes(cur))sel.value=cur;
+  refreshGtPages();
+}
+function refreshGtPages(){
+  const e=gtSelEval(),sel=$('gtPage'),cur=sel.value;
+  const pages=e?Object.keys(e.pages).map(Number).sort((a,b)=>a-b):[];
+  sel.innerHTML=pages.map(p=>`<option value="${p}">${p}${S.edits.has(gtKey(e.name,p))?' ✎':''}</option>`).join('');
+  if(pages.map(String).includes(cur))sel.value=cur;
+  loadGtPage();
+}
+function gtRuns(){const e=gtSelEval();if(!e)return[];const p=+$('gtPage').value;return S.results.map((r,i)=>({r,i})).filter(x=>x.r.doc===e.name&&x.r.page===p&&!x.r.error);}
+function refreshGtRuns(){
+  const sel=$('gtRun');if(!sel)return;const cur=sel.value;const runs=gtRuns();
+  sel.innerHTML=runs.length?runs.map(x=>`<option value="${x.i}">#${x.i+1}｜邊長 ${x.r.detLimit??'?'}｜${x.r.chars} 字</option>`).join(''):'<option value="">（尚無此頁 OCR 結果）</option>';
+  if(runs.some(x=>String(x.i)===cur))sel.value=cur;else if(runs.length)sel.value=String(runs[runs.length-1].i);
+  renderGtDiff();
+}
+function loadGtPage(){
+  const e=gtSelEval(),p=+$('gtPage').value;
+  $('gtText').value=e&&e.pages[p]?e.pages[p].gt:'';
+  $('gtInfo').textContent=e&&e.pages[p]?`${e.name} 第 ${p} 頁｜正確稿 ${tpCompact(e.pages[p].gt).length} 字${S.edits.has(gtKey(e.name,p))?'｜已修改（尚未匯出）':''}`:'請先在「1. 載入檔案」載入評估 JSON。';
+  refreshGtRuns();
+}
+function renderGtDiff(){
+  const gtText=$('gtText').value;const run=S.results[+$('gtRun').value];
+  const L=$('gtL'),R=$('gtR');
+  if(!run){L.innerHTML=escH(gtText);R.textContent='（尚無此頁 OCR 結果；辨識後會出現在這裡）';return;}
+  const ocrText=run.items.map(i=>i.t).join('');
+  const d=tpDiffMask(gtText,ocrText);
+  if(d.skipped){L.innerHTML=escH(gtText);R.innerHTML=run.items.map(i=>escH(i.t)).join('<br>');$('gtInfo').textContent+='｜字數太多，略過逐字比對';return;}
+  let ci=0,hl='';
+  for(const ch of Array.from(gtText)){if(/\s/.test(ch)){hl+=escH(ch);continue;}hl+=d.gtMiss.has(ci)?`<span class="dm">${escH(ch)}</span>`:escH(ch);ci++;}
+  L.innerHTML=hl;
+  let oi=0,rh='';
+  run.items.forEach(it=>{let line='';for(const ch of Array.from(it.t)){if(/\s/.test(ch)){line+=escH(ch);continue;}line+=d.ocrBad.has(oi)?`<span class="dw">${escH(ch)}</span>`:escH(ch);oi++;}
+    rh+=`<div${it.s<0.95?` class="lowl" title="信心分數 ${it.s.toFixed(3)}"`:''}>${line}</div>`;});
+  R.innerHTML=rh;
+  $('gtInfo').textContent=($('gtInfo').textContent.split('｜差異')[0])+`｜差異：正確稿 ${d.gtMiss.size} 字、OCR ${d.ocrBad.size} 字（編輯距離 ${d.dist}）`;
+}
+$('gtDoc').addEventListener('change',refreshGtPages);
+$('gtPage').addEventListener('change',loadGtPage);
+$('gtRun').addEventListener('change',renderGtDiff);
+$('gtDiff').addEventListener('click',renderGtDiff);
+$('gtApply').addEventListener('click',()=>{
+  const e=gtSelEval(),p=+$('gtPage').value;if(!e||!e.pages[p])return;
+  const k=gtKey(e.name,p),text=$('gtText').value;
+  if(text===e.pages[p].gt)return;
+  if(!S.gtOrig.has(k))S.gtOrig.set(k,e.pages[p].gt);
+  e.pages[p].gt=text;
+  if(text===S.gtOrig.get(k)){S.edits.delete(k);S.gtOrig.delete(k);}else S.edits.set(k,text);
+  log(`正確稿已修改：${e.name} 第 ${p} 頁（尚未匯出；已跑的結果要按「重算」才會更新）`);
+  refreshGtPages();
+});
+$('gtRevert').addEventListener('click',()=>{
+  const e=gtSelEval(),p=+$('gtPage').value;if(!e||!e.pages[p])return;const k=gtKey(e.name,p);
+  if(S.gtOrig.has(k)){e.pages[p].gt=S.gtOrig.get(k);S.gtOrig.delete(k);S.edits.delete(k);log(`已還原：${e.name} 第 ${p} 頁`);}
+  refreshGtPages();
+});
+function recalcResults(){
+  let n=0;
+  S.results.forEach(r=>{
+    if(r.error||r.gtSource!=='評估檔')return;
+    const ev=S.evals.get(r.doc),e=ev&&ev.pages[r.page];if(!e||!e.gt)return;
+    r.metrics=tpMetrics(e.gt,r.text);
+    const keys=e.keyItems&&e.keyItems.length?e.keyItems:[];
+    r.key=keys.length?tpKeyCheck(keys,r.text):{total:0,strictOk:0,looseOk:0,misses:[]};
+    if(e.tessText!=null){r.tess=tpMetrics(e.gt,e.tessText);r.tessKey=keys.length?tpKeyCheck(keys,e.tessText):{total:0,strictOk:0,looseOk:0,misses:[]};}
+    n++;
+  });
+  return n;
+}
+$('gtRecalc').addEventListener('click',()=>{const n=recalcResults();log(`已用目前正確稿重算 ${n} 筆結果（來源為評估檔者）`);renderResults();});
+$('gtExport').addEventListener('click',()=>{
+  let count=0;
+  S.evals.forEach(ev=>{
+    const pages=[...S.edits.keys()].filter(k=>k.startsWith(ev.name+'\u0001')).map(k=>+k.split('\u0001')[1]);
+    if(!pages.length||!ev.raw)return;
+    const out=JSON.parse(JSON.stringify(ev.raw));
+    out.pages.forEach(pg=>{if(pages.includes(pg.page)){const t=S.edits.get(gtKey(ev.name,pg.page));if(!pg.groundTruth)pg.groundTruth={};pg.groundTruth.text=t;}});
+    out.testPageEdit={app:'paddleocr_test_page_v2',exportedAt:new Date().toISOString(),editedPages:pages.sort((a,b)=>a-b),note:'只修改 groundTruth.text；keyItems 未同步修改'};
+    download(`${ev.file.replace(/\.json$/i,'')}_gtfix_${stamp()}.json`,JSON.stringify(out),'application/json');count++;
+  });
+  log(count?`已匯出 ${count} 個修正後評估檔（新檔，未覆蓋原檔）`:'沒有已修改的正確稿可匯出');
+});
+refreshGtDocs();
+</script>
+</body>
+</html>

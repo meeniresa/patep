@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PaddleOCR 引擎頁 v1（供 PDF 編輯器以 iframe 呼叫）</title>
+<style>body{font:13px/1.5 sans-serif;padding:10px;color:#222;background:#fff}@media(prefers-color-scheme:dark){body{background:#1b1d21;color:#e8e8ea}}#log{white-space:pre-wrap;font:12px/1.4 monospace}</style>
+</head>
+<body>
+<b>PaddleOCR 引擎頁 v1</b>
+<div>這個頁面本身不需要操作：它在背景載入 PaddleOCR，等待上層頁面用 postMessage 傳影像進來，辨識後回傳文字。影像只在你的瀏覽器內處理，不會上傳到任何伺服器（程式與模型檔會從網路下載）。</div>
+<div id="log"></div>
+<script type="module">
+/* 訊息協定 v1
+   引擎 → 上層：{type:'engine-hello',v:1}（頁面載入完成）
+   上層 → 引擎：{type:'init',model:'PP-OCRv6'|'PP-OCRv5'|'PP-OCRv6-tiny',backend:'auto'|'wasm'|'webgpu'}
+   引擎 → 上層：{type:'status',phase:'sdk'|'model'|'ready'|'error',ms,msg,summary}
+   上層 → 引擎：{type:'ocr',id,buffer:ArrayBuffer,mime,params:{detLimit,detType}}
+   引擎 → 上層：{type:'result',id,ok,items:[{text,score,poly}],text,metrics,runtime,wallMs,error} */
+const logEl=document.getElementById('log');
+const log=m=>{logEl.textContent+=`[${new Date().toLocaleTimeString()}] ${m}\n`;};
+const q=new URLSearchParams(location.search);
+const isLocalHost=u=>/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(u);
+const originOk=o=>o==='null'||o===location.origin||isLocalHost(o);
+let sdk=null,ocr=null,initializing=null,chain=Promise.resolve();
+const reply=(target,msg,transfer)=>{try{target.postMessage(msg,'*',transfer||[]);}catch(e){log('回覆失敗：'+e);}};
+function sdkCandidates(){
+  const urls=[];const custom=q.get('sdk');
+  if(custom){try{const u=new URL(custom,location.href);if(u.origin===location.origin||isLocalHost(u.origin))urls.push(u.href);else log('忽略 ?sdk=：只接受同來源或本機位址');}catch(_){}}
+  urls.push('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm','https://esm.sh/@paddleocr/paddleocr-js@0.4.2');
+  return urls;
+}
+async function loadSdk(target){
+  let last=null;
+  for(const u of sdkCandidates()){
+    const t0=performance.now();
+    try{log('載入 SDK：'+u);const mod=await import(u);if(!mod.PaddleOCR)throw new Error('模組沒有 PaddleOCR');
+      const ms=performance.now()-t0;reply(target,{type:'status',phase:'sdk',ms,msg:u});return mod;}
+    catch(e){last=e;log('SDK 載入失敗：'+(e&&e.message||e));}
+  }
+  throw last||new Error('SDK 載入失敗');
+}
+async function init(target,m){
+  if(ocr)return;
+  if(initializing)return initializing;
+  initializing=(async()=>{
+    try{
+      if(!sdk)sdk=await loadSdk(target);
+      const model=m.model||'PP-OCRv6',backend=m.backend||'auto';
+      const opt={lang:'ch',ortOptions:{backend}};
+      if(model==='PP-OCRv5')opt.ocrVersion='PP-OCRv5';
+      else if(model==='PP-OCRv6')opt.ocrVersion='PP-OCRv6';
+      else{opt.textDetectionModelName='PP-OCRv6_tiny_det';opt.textRecognitionModelName='PP-OCRv6_tiny_rec';}
+      reply(target,{type:'status',phase:'model',msg:'下載並初始化模型：'+JSON.stringify(opt)});
+      const t0=performance.now();
+      ocr=await sdk.PaddleOCR.create(opt);
+      let summary=null;try{summary=ocr.getInitializationSummary?ocr.getInitializationSummary():null;}catch(_){}
+      const ms=performance.now()-t0;log(`引擎就緒（${Math.round(ms)} ms）`);
+      reply(target,{type:'status',phase:'ready',ms,summary});
+    }catch(e){
+      log('初始化失敗：'+(e&&e.stack||e));
+      reply(target,{type:'status',phase:'error',msg:String(e&&e.message||e)});
+    }finally{initializing=null;}
+  })();
+  return initializing;
+}
+async function runOcr(target,m){
+  const id=m.id;
+  try{
+    if(!ocr)throw new Error('引擎尚未就緒（請先送 init 並等到 ready）');
+    if(!(m.buffer instanceof ArrayBuffer))throw new Error('缺少 buffer（ArrayBuffer）');
+    const blob=new Blob([m.buffer],{type:m.mime||'image/png'});
+    const p=m.params||{};const params={};
+    if(Number.isFinite(p.detLimit))params.textDetLimitSideLen=p.detLimit;
+    if(p.detType==='max'||p.detType==='min')params.textDetLimitType=p.detType;
+    const t0=performance.now();
+    const res=await ocr.predict(blob,params);
+    const wallMs=performance.now()-t0;
+    const r=Array.isArray(res)?res[0]:res;
+    const items=(r.items||[]).map(i=>({text:i.text,score:i.score,poly:i.poly}));
+    reply(target,{type:'result',id,ok:true,items,text:items.map(i=>i.text).join(''),metrics:r.metrics||null,runtime:r.runtime||null,wallMs});
+  }catch(e){
+    reply(target,{type:'result',id,ok:false,error:String(e&&e.message||e)});
+  }
+}
+addEventListener('message',e=>{
+  if(!originOk(e.origin)){return;}
+  const m=e.data;if(!m||typeof m!=='object')return;
+  const target=e.source;if(!target)return;
+  if(m.type==='init')init(target,m);
+  else if(m.type==='ocr')chain=chain.then(()=>runOcr(target,m));
+});
+log('引擎頁已載入，等待上層頁面送出 init');
+if(window.parent!==window)window.parent.postMessage({type:'engine-hello',v:1},'*');
+</script>
+</body>
+</html>
