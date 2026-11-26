@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net https://esm.sh; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://esm.sh https://paddle-model-ecology.bj.bcebos.com https://huggingface.co https://*.hf.co blob: data:; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' blob: data:; object-src 'none'; base-uri 'none';">
-<title>PaddleOCR 遠端推論引擎頁 v2.1（方案 C｜支援 PP-OCRv6 medium/small/tiny）</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net https://esm.sh; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://esm.sh blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://esm.sh https://*.bcebos.com https://huggingface.co https://*.hf.co https://*.huggingface.co https://raw.githubusercontent.com blob: data:; worker-src 'self' blob: https://cdn.jsdelivr.net https://esm.sh; img-src 'self' blob: data:; object-src 'none'; base-uri 'none';">
+<title>PaddleOCR 遠端推論引擎頁 v2.2（方案 C｜支援 PP-OCRv6 medium/small/tiny）</title>
 <style>
   :root {
     --bg: #1b1f26;
@@ -142,7 +142,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>PaddleOCR 遠端推論引擎頁 v2.1（方案 C）</h1>
+      <h1>PaddleOCR 遠端推論引擎頁 v2.2（方案 C）</h1>
       <div class="privacy">
         所有 PDF 頁面影像僅透過本機瀏覽器記憶體（postMessage）傳遞並於本機運算，<b>不會上傳至任何伺服器</b>（已啟用 CSP 連線白名單；僅首次需下載開源引擎與模型並快取於本機）。
       </div>
