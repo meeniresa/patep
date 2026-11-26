@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net https://esm.sh; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://esm.sh; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://esm.sh https://paddle-model-ecology.bj.bcebos.com https://huggingface.co https://*.hf.co blob: data:; worker-src 'self' blob: https://cdn.jsdelivr.net; img-src 'self' blob: data:; object-src 'none'; base-uri 'none';">
+<title>PaddleOCR 遠端推論引擎頁 v2.1（方案 C｜支援 PP-OCRv6 medium/small/tiny）</title>
+<style>
+  :root {
+    --bg: #1b1f26;
+    --card: #242a33;
+    --fg: #e8eaed;
+    --mut: #9aa4b2;
+    --bd: #3d4654;
+    --ac: #3b82f6;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 14px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13.5px/1.55 -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  header {
+    background: var(--card);
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  header h1 { margin: 0; font-size: 16px; }
+  .privacy { font-size: 12px; color: var(--mut); margin-top: 4px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--bd);
+    background: #1a2028;
+    color: var(--fg);
+  }
+  .badge.ok { border-color: #059669; background: #064e3b; color: #a7f3d0; }
+  .badge.warn { border-color: #b45309; background: #451a03; color: #fde68a; }
+  .badge.bad { border-color: #b91c1c; background: #450a0a; color: #fecaca; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  label { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #cbd5e1; }
+  select, input[type="number"], input[type="text"] {
+    background: #161a20;
+    color: var(--fg);
+    border: 1px solid var(--bd);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12.5px;
+  }
+  button {
+    background: #333c4a;
+    color: var(--fg);
+    border: 1px solid #4c586b;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #3f4a5c; }
+  button.primary { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
+  button.primary:hover:not(:disabled) { background: #2563eb; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    font-size: 12px;
+  }
+  .stat {
+    background: #1a2028;
+    border: 1px solid #323a46;
+    border-radius: 7px;
+    padding: 7px 9px;
+  }
+  .stat .k { color: var(--mut); font-size: 11px; }
+  .stat .v { font-weight: 600; margin-top: 2px; word-break: break-all; }
+  #log {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #14181e;
+    border: 1px solid var(--bd);
+    border-radius: 7px;
+    padding: 8px 10px;
+    max-height: 260px;
+    overflow: auto;
+    color: #dbe3ee;
+  }
+  #testPreviewWrap { margin-top: 8px; display: none; }
+  #testCanvas {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--bd);
+    border-radius: 6px;
+    background: #fff;
+    display: block;
+  }
+  #testOut {
+    margin-top: 8px;
+    white-space: pre-wrap;
+    font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #14181e;
+    border: 1px solid var(--bd);
+    border-radius: 7px;
+    padding: 8px 10px;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .hint { font-size: 12px; color: var(--mut); line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>PaddleOCR 遠端推論引擎頁 v2.1（方案 C）</h1>
+      <div class="privacy">
+        所有 PDF 頁面影像僅透過本機瀏覽器記憶體（postMessage）傳遞並於本機運算，<b>不會上傳至任何伺服器</b>（已啟用 CSP 連線白名單；僅首次需下載開源引擎與模型並快取於本機）。
+      </div>
+    </div>
+    <div class="badges">
+      <span id="bdMode" class="badge">偵測模式中…</span>
+      <span id="bdSecure" class="badge">檢查安全性…</span>
+      <span id="bdGpu" class="badge">檢查 WebGPU…</span>
+      <span id="bdEngine" class="badge">尚未初始化</span>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>執行狀態</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="k">連線通道</div><div class="v" id="stMode">—</div></div>
+      <div class="stat"><div class="k">目前模型／請求後端</div><div class="v" id="stModel">尚未載入</div></div>
+      <div class="stat"><div class="k">實際推論後端（det / rec）</div><div class="v" id="stProvider">—</div></div>
+      <div class="stat"><div class="k">已處理頁數／佇列中</div><div class="v" id="stCounter">0 頁 ／ 0 等待</div></div>
+    </div>
+    <div id="popupTip" class="hint" style="margin-top:8px;display:none">
+      此分頁為 PDF 編輯器的專用 OCR 加速視窗，辨識期間請保持開啟（可切回主編輯器分頁操作，不必關閉本分頁）。
+    </div>
+  </section>
+
+  <section class="card" id="selfTestCard">
+    <h2>
+      <span>階段一獨立自測（確認 GitHub Pages、模型下載與辨識正常）</span>
+      <button type="button" id="btnCopyLog">複製診斷紀錄</button>
+    </h2>
+    <div class="row">
+      <label>模型
+        <select id="stSelModel">
+          <option value="PP-OCRv6-medium">PP-OCRv6 medium（34.5M｜約 139 MB，最高準確度）</option>
+          <option value="PP-OCRv6" selected>PP-OCRv6 small（7.7M｜約 31 MB，推薦平衡）</option>
+          <option value="PP-OCRv5">PP-OCRv5 mobile（約 21 MB）</option>
+          <option value="PP-OCRv6-tiny">PP-OCRv6 tiny（1.5M｜約 6 MB，最快）</option>
+        </select>
+      </label>
+      <label>後端
+        <select id="stSelBackend">
+          <option value="auto" selected>auto（優先 WebGPU）</option>
+          <option value="webgpu">webgpu（fp16 加速）</option>
+          <option value="wasm">wasm（CPU fp32 基準）</option>
+        </select>
+      </label>
+      <label>偵測邊長
+        <input type="number" id="stDetLimit" value="1600" min="320" max="4096" step="64" style="width:82px">
+      </label>
+    </div>
+    <div class="row">
+      <button type="button" id="btnSelfInit" class="primary">1) 初始化引擎</button>
+      <button type="button" id="btnSelfRun" disabled>2) 執行內建繁中合成圖自測</button>
+      <button type="button" id="btnSelfDispose" disabled>釋放模型記憶體</button>
+    </div>
+    <div class="hint">
+      模型來源說明：small／tiny 與 v5 由 SDK 預設來源載入；medium（34.5M）可從官方或 Hugging Face（<code>chenmohan/web-sdk-pp-ocrv6</code>，第三方整理非官方維護）載入，請依階段 0 基準測試結果選用。
+    </div>
+    <div id="testPreviewWrap">
+      <canvas id="testCanvas"></canvas>
+      <div id="testOut"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>
+      <span>運行紀錄</span>
+      <button type="button" id="btnClearLog">清除紀錄</button>
+    </h2>
+    <div id="log"></div>
+  </section>
+</div>
+
+<script type="module">
+const PROTOCOL_VERSION = 2;
+const SDK_VERSION = '0.4.2';
+
+/* 第三方整理之 PP-OCRv6 medium（34.5M）預設遠端權重路徑（非官方維護，僅於選用 medium 且未覆寫 URL 時使用） */
+const DEFAULT_MEDIUM_ASSETS = {
+  detUrl: 'https://huggingface.co/chenmohan/web-sdk-pp-ocrv6/resolve/main/PP-OCRv6_server_det_infer.onnx',
+  recUrl: 'https://huggingface.co/chenmohan/web-sdk-pp-ocrv6/resolve/main/PP-OCRv6_server_rec_infer.onnx',
+};
+
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+
+function log(msg) {
+  const ts = new Date().toLocaleTimeString('zh-Hant', { hour12: false });
+  logEl.textContent += `[${ts}] ${msg}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+const qParams = new URLSearchParams(location.search);
+const hashParams = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+const expectedToken = hashParams.get('token') || qParams.get('token') || '';
+
+const isIframe = window.parent !== window;
+const isPopup = !isIframe && !!(window.opener && window.opener !== window);
+const mode = isIframe ? 'iframe' : (isPopup ? 'popup' : 'standalone');
+const hostWindow = isIframe ? window.parent : (isPopup ? window.opener : null);
+
+function isLocalHostOrigin(origin) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(String(origin || ''));
+}
+function isOriginAllowed(origin) {
+  return origin === 'null' || origin === location.origin || isLocalHostOrigin(origin);
+}
+function isAllowedModelUrl(raw) {
+  if (!raw) return false;
+  try {
+    const u = new URL(String(raw).trim());
+    if (u.protocol !== 'https:' && !isLocalHostOrigin(u.origin)) return false;
+    return u.origin === location.origin ||
+           isLocalHostOrigin(u.origin) ||
+           u.hostname === 'cdn.jsdelivr.net' ||
+           u.hostname === 'esm.sh' ||
+           u.hostname === 'paddle-model-ecology.bj.bcebos.com' ||
+           u.hostname === 'huggingface.co' ||
+           u.hostname.endsWith('.hf.co');
+  } catch (_) {
+    return false;
+  }
+}
+
+function getEnvInfo() {
+  return {
+    protocol: location.protocol,
+    isSecureContext: !!window.isSecureContext,
+    webgpuApi: !!navigator.gpu,
+    crossOriginIsolated: !!self.crossOriginIsolated,
+    hardwareConcurrency: navigator.hardwareConcurrency || null,
+    deviceMemoryGB: navigator.deviceMemory || null,
+    userAgent: navigator.userAgent,
+  };
+}
+
+let sdkMod = null;
+let ocrInstance = null;
+let currentConfig = null;
+let currentSummary = null;
+let initPromise = null;
+let opChain = Promise.resolve();
+let processedCount = 0;
+let queuedCount = 0;
+let hostConnected = false;
+const cancelledIds = new Set();
+let cancelEpoch = 0;
+
+function updateUI() {
+  const env = getEnvInfo();
+  const modeMap = {
+    popup: ['獨立分頁（已配對）', 'ok'],
+    iframe: ['背景 iframe（已配對）', 'warn'],
+    standalone: ['獨立測試模式', ''],
+  };
+  const [modeTxt, modeCls] = modeMap[mode];
+  $('bdMode').textContent = modeTxt;
+  $('bdMode').className = 'badge ' + modeCls;
+
+  $('bdSecure').textContent = env.isSecureContext ? 'HTTPS 安全環境' : '非安全環境';
+  $('bdSecure').className = 'badge ' + (env.isSecureContext ? 'ok' : 'bad');
+
+  $('bdGpu').textContent = env.webgpuApi ? 'WebGPU API 可用' : '僅 WASM（無 WebGPU）';
+  $('bdGpu').className = 'badge ' + (env.webgpuApi ? 'ok' : 'warn');
+
+  if (initPromise) {
+    $('bdEngine').textContent = '初始化中…';
+    $('bdEngine').className = 'badge warn';
+  } else if (ocrInstance) {
+    $('bdEngine').textContent = '引擎就緒';
+    $('bdEngine').className = 'badge ok';
+  } else {
+    $('bdEngine').textContent = '尚未初始化';
+    $('bdEngine').className = 'badge';
+  }
+
+  $('stMode').textContent = `${modeTxt}${expectedToken ? '（Token 已鎖定）' : ''}`;
+  $('stModel').textContent = currentConfig
+    ? `${currentConfig.model} ／ 請求 ${currentConfig.backend}`
+    : '尚未載入';
+  $('stProvider').textContent = currentSummary
+    ? `${currentSummary.backend || '?'}（det: ${currentSummary.detProvider || '?'} ／ rec: ${currentSummary.recProvider || '?'}）`
+    : '—';
+  $('stCounter').textContent = `${processedCount} 頁 ／ ${queuedCount} 等待`;
+
+  if (mode === 'popup') $('popupTip').style.display = 'block';
+  if (mode === 'iframe') $('selfTestCard').style.display = 'none';
+
+  $('btnSelfRun').disabled = !ocrInstance || !!initPromise;
+  $('btnSelfDispose').disabled = !ocrInstance || !!initPromise;
+}
+
+function reply(target, targetOrigin, msg, transfer) {
+  if (!target || target.closed) return false;
+  const dest = (!targetOrigin || targetOrigin === 'null') ? '*' : targetOrigin;
+  try {
+    target.postMessage({ v: PROTOCOL_VERSION, token: expectedToken, ...msg }, dest, transfer || []);
+    return true;
+  } catch (err) {
+    log('postMessage 回覆失敗：' + (err && err.message || err));
+    return false;
+  }
+}
+
+function getSdkCandidates() {
+  const urls = [];
+  const custom = qParams.get('sdk');
+  if (custom) {
+    try {
+      const u = new URL(custom, location.href);
+      if (u.origin === location.origin || isLocalHostOrigin(u.origin)) {
+        urls.push(u.href);
+      } else {
+        log('安全攔截：忽略非同源／非本機的 ?sdk= 參數');
+      }
+    } catch (_) {}
+  }
+  urls.push(
+    `https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@${SDK_VERSION}/+esm`,
+    `https://esm.sh/@paddleocr/paddleocr-js@${SDK_VERSION}`
+  );
+  return urls;
+}
+
+async function ensureSdkLoaded(onProgress) {
+  if (sdkMod) return sdkMod;
+  let lastErr = null;
+  for (const url of getSdkCandidates()) {
+    const t0 = performance.now();
+    try {
+      log(`載入 PaddleOCR SDK（固定版本 ${SDK_VERSION}）：${url}`);
+      const mod = await import(url);
+      if (!mod || !mod.PaddleOCR) throw new Error('載入之模組未匯出 PaddleOCR');
+      const ms = Math.round(performance.now() - t0);
+      sdkMod = mod;
+      log(`SDK 載入完成（${ms} ms）`);
+      if (onProgress) onProgress({ phase: 'sdk', ms, msg: url });
+      return sdkMod;
+    } catch (err) {
+      lastErr = err;
+      log(`SDK 來源失敗（${url}）：${err && err.message || err}`);
+    }
+  }
+  throw lastErr || new Error('所有 SDK 來源皆載入失敗，請檢查網路或防火牆設定');
+}
+
+async function fetchAndVerifyModelIfNeeded(url, expectedSha256, label, notify) {
+  if (!isAllowedModelUrl(url)) {
+    throw new Error(`模型網址不在允許白名單內：${url}`);
+  }
+  if (!expectedSha256) return url;
+  if (notify) notify({ phase: 'model', msg: `正在下載並驗證 ${label} SHA-256 雜湊…` });
+  log(`下載並驗證 ${label} SHA-256：${url}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`下載 ${label} 失敗（HTTP ${res.status}）`);
+  const buf = await res.arrayBuffer();
+  const dig = await crypto.subtle.digest('SHA-256', buf);
+  const actual = Array.from(new Uint8Array(dig), b => b.toString(16).padStart(2, '0')).join('');
+  if (actual.toLowerCase() !== String(expectedSha256).trim().toLowerCase()) {
+    throw new Error(`${label} SHA-256 驗證不符！預期 ${expectedSha256}，實際 ${actual}`);
+  }
+  log(`${label} SHA-256 驗證通過（${actual.slice(0, 16)}…）`);
+  return new Uint8Array(buf);
+}
+
+function normalizeConfig(m) {
+  const validModels = ['PP-OCRv6-medium', 'PP-OCRv6', 'PP-OCRv5', 'PP-OCRv6-tiny'];
+  const validBackends = ['auto', 'webgpu', 'wasm'];
+  const model = validModels.includes(m && m.model) ? m.model : 'PP-OCRv6';
+  const backend = validBackends.includes(m && m.backend) ? m.backend : 'auto';
+  const detModelUrl = (m && typeof m.detModelUrl === 'string' && m.detModelUrl.trim()) ? m.detModelUrl.trim() : '';
+  const recModelUrl = (m && typeof m.recModelUrl === 'string' && m.recModelUrl.trim()) ? m.recModelUrl.trim() : '';
+  const detSha256 = (m && typeof m.detSha256 === 'string' && m.detSha256.trim()) ? m.detSha256.trim() : '';
+  const recSha256 = (m && typeof m.recSha256 === 'string' && m.recSha256.trim()) ? m.recSha256.trim() : '';
+  return { model, backend, detModelUrl, recModelUrl, detSha256, recSha256 };
+}
+
+async function buildCreateOptions(cfg, notify) {
+  const opt = { lang: 'ch', ortOptions: { backend: cfg.backend } };
+  if (cfg.model === 'PP-OCRv5') {
+    opt.ocrVersion = 'PP-OCRv5';
+  } else if (cfg.model === 'PP-OCRv6') {
+    opt.ocrVersion = 'PP-OCRv6';
+  } else if (cfg.model === 'PP-OCRv6-tiny') {
+    opt.textDetectionModelName = 'PP-OCRv6_tiny_det';
+    opt.textRecognitionModelName = 'PP-OCRv6_tiny_rec';
+  } else if (cfg.model === 'PP-OCRv6-medium') {
+    // PP-OCRv6 medium（34.5M）：支援自訂 ONNX URL 或預設 Hugging Face 整理檔（非官方維護）
+    const detSrc = cfg.detModelUrl || DEFAULT_MEDIUM_ASSETS.detUrl;
+    const recSrc = cfg.recModelUrl || DEFAULT_MEDIUM_ASSETS.recUrl;
+    opt.ocrVersion = 'PP-OCRv6';
+    opt.textDetectionModelName = 'PP-OCRv6_server_det';
+    opt.textRecognitionModelName = 'PP-OCRv6_server_rec';
+    opt.textDetectionModel = await fetchAndVerifyModelIfNeeded(detSrc, cfg.detSha256, 'PP-OCRv6 medium 偵測模型', notify);
+    opt.textRecognitionModel = await fetchAndVerifyModelIfNeeded(recSrc, cfg.recSha256, 'PP-OCRv6 medium 辨識模型', notify);
+    log('注意：PP-OCRv6 medium 權重約 139 MB（首次下載需較長時間，完成後快取於本機 IndexedDB）');
+  }
+  return opt;
+}
+
+async function disposeEngineInternal() {
+  if (!ocrInstance) return;
+  try {
+    if (typeof ocrInstance.dispose === 'function') await ocrInstance.dispose();
+  } catch (err) {
+    log('釋放舊引擎時發生警告：' + (err && err.message || err));
+  }
+  ocrInstance = null;
+  currentConfig = null;
+  currentSummary = null;
+  updateUI();
+}
+
+function sameConfig(a, b) {
+  return a && b &&
+    a.model === b.model &&
+    a.backend === b.backend &&
+    a.detModelUrl === b.detModelUrl &&
+    a.recModelUrl === b.recModelUrl;
+}
+
+async function initEngine(cfgInput, notify) {
+  const cfg = normalizeConfig(cfgInput);
+  const force = !!(cfgInput && cfgInput.force);
+
+  if (ocrInstance && !force && sameConfig(currentConfig, cfg)) {
+    log(`重用已就緒引擎（${cfg.model} / ${cfg.backend}）`);
+    if (notify) notify({ phase: 'ready', ms: 0, reused: true, config: currentConfig, summary: currentSummary });
+    updateUI();
+    return { config: currentConfig, summary: currentSummary, reused: true };
+  }
+
+  if (initPromise) {
+    try { await initPromise; } catch (_) {}
+  }
+
+  if (ocrInstance && !force && sameConfig(currentConfig, cfg)) {
+    if (notify) notify({ phase: 'ready', ms: 0, reused: true, config: currentConfig, summary: currentSummary });
+    updateUI();
+    return { config: currentConfig, summary: currentSummary, reused: true };
+  }
+
+  initPromise = (async () => {
+    try {
+      updateUI();
+      if (ocrInstance) {
+        log('切換設定，正在釋放舊模型實例…');
+        if (notify) notify({ phase: 'disposing', msg: '正在釋放舊模型…' });
+        await disposeEngineInternal();
+      }
+
+      const mod = await ensureSdkLoaded(notify);
+      const opt = await buildCreateOptions(cfg, notify);
+      log(`初始化模型：model=${cfg.model}, backend=${cfg.backend}`);
+      if (notify) notify({ phase: 'model', msg: `正在載入 ${cfg.model}（後端：${cfg.backend}）…` });
+
+      const t0 = performance.now();
+      const instance = await mod.PaddleOCR.create(opt);
+      const ms = Math.round(performance.now() - t0);
+
+      let summary = null;
+      try {
+        summary = typeof instance.getInitializationSummary === 'function'
+          ? instance.getInitializationSummary()
+          : null;
+      } catch (_) {}
+
+      ocrInstance = instance;
+      currentConfig = cfg;
+      currentSummary = summary;
+      log(`引擎就緒（${ms} ms）｜後端=${summary ? summary.backend : '?'}｜det=${summary ? summary.detProvider : '?'}｜rec=${summary ? summary.recProvider : '?'}｜WebGPU=${summary ? summary.webgpuAvailable : '?'}`);
+      if (notify) notify({ phase: 'ready', ms, reused: false, config: currentConfig, summary: currentSummary });
+      return { config: currentConfig, summary: currentSummary, ms };
+    } catch (err) {
+      const msg = String(err && err.message || err);
+      log('引擎初始化失敗：' + (err && err.stack || msg));
+      if (notify) notify({ phase: 'error', msg });
+      throw err;
+    } finally {
+      initPromise = null;
+      updateUI();
+    }
+  })();
+
+  return initPromise;
+}
+
+async function decodeBufferToCanvas(buffer, mime) {
+  const blob = new Blob([buffer], { type: mime || 'image/png' });
+  const canvas = document.createElement('canvas');
+  if (typeof createImageBitmap === 'function') {
+    const bmp = await createImageBitmap(blob);
+    try {
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      canvas.getContext('2d').drawImage(bmp, 0, 0);
+      return canvas;
+    } finally {
+      if (typeof bmp.close === 'function') bmp.close();
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('瀏覽器無法解碼傳入影像'));
+      im.src = url;
+    });
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function normalizePredictItems(rawItems) {
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems.map(it => {
+    const poly = Array.isArray(it && it.poly)
+      ? it.poly.map(pt => [Number(pt[0]) || 0, Number(pt[1]) || 0])
+      : [];
+    return {
+      text: String(it && it.text != null ? it.text : ''),
+      score: Number(it && it.score != null ? it.score : 0),
+      poly,
+    };
+  });
+}
+
+async function predictCanvas(canvas, paramsInput) {
+  if (!ocrInstance) throw new Error('引擎尚未初始化（請先執行 init）');
+  const p = paramsInput || {};
+  const params = {};
+  if (Number.isFinite(Number(p.detLimit)) && Number(p.detLimit) >= 32) {
+    params.textDetLimitSideLen = Math.round(Number(p.detLimit));
+  }
+  if (p.detType === 'max' || p.detType === 'min') {
+    params.textDetLimitType = p.detType;
+  }
+  const t0 = performance.now();
+  const res = await ocrInstance.predict(canvas, params);
+  const predictMs = performance.now() - t0;
+  const r = Array.isArray(res) ? res[0] : res;
+  const items = normalizePredictItems(r && r.items);
+  return {
+    items,
+    text: items.map(i => i.text).join('\n'),
+    imageSize: { width: canvas.width, height: canvas.height },
+    metrics: (r && r.metrics) ? r.metrics : null,
+    runtime: (r && r.runtime) ? r.runtime : null,
+    predictMs,
+  };
+}
+
+window.addEventListener('message', e => {
+  if (!isOriginAllowed(e.origin)) return;
+  if (hostWindow && e.source !== hostWindow) return;
+  const m = e.data;
+  if (!m || typeof m !== 'object') return;
+  if (expectedToken && m.token !== expectedToken) return;
+
+  const target = e.source;
+  const origin = e.origin;
+  if (!target) return;
+
+  hostConnected = true;
+  stopHelloTimer();
+
+  if (m.type === 'ping') {
+    reply(target, origin, {
+      type: 'pong',
+      mode,
+      ready: !!ocrInstance,
+      busy: !!initPromise || queuedCount > 0,
+      config: currentConfig,
+      summary: currentSummary,
+      env: getEnvInfo(),
+    });
+    return;
+  }
+
+  if (m.type === 'cancel') {
+    if (m.all) {
+      cancelEpoch++;
+      log('收到主程式取消全部排隊任務指令');
+    } else if (Array.isArray(m.ids)) {
+      m.ids.forEach(id => cancelledIds.add(id));
+      log(`收到取消指定任務指令（${m.ids.length} 筆）`);
+    }
+    return;
+  }
+
+  if (m.type === 'init') {
+    opChain = opChain.then(async () => {
+      try {
+        await initEngine(m, statusPayload => {
+          reply(target, origin, { type: 'status', id: m.id, ...statusPayload });
+        });
+      } catch (_) {}
+    });
+    return;
+  }
+
+  if (m.type === 'dispose') {
+    opChain = opChain.then(async () => {
+      await disposeEngineInternal();
+      log('已依主程式指示釋放模型記憶體');
+      reply(target, origin, { type: 'status', id: m.id, phase: 'disposed' });
+    });
+    return;
+  }
+
+  if (m.type === 'ocr') {
+    const jobId = m.id;
+    const jobEpoch = cancelEpoch;
+    queuedCount++;
+    updateUI();
+
+    opChain = opChain.then(async () => {
+      queuedCount = Math.max(0, queuedCount - 1);
+      updateUI();
+
+      if (cancelledIds.has(jobId) || jobEpoch !== cancelEpoch) {
+        cancelledIds.delete(jobId);
+        reply(target, origin, {
+          type: 'result',
+          id: jobId,
+          pageIndex: m.pageIndex,
+          ok: false,
+          cancelled: true,
+          error: '任務已取消',
+        });
+        return;
+      }
+
+      const tStart = performance.now();
+      let canvas = null;
+      try {
+        if (!ocrInstance) throw new Error('引擎尚未就緒，請先傳送 init 並等待 ready');
+        if (!(m.buffer instanceof ArrayBuffer) || m.buffer.byteLength === 0) {
+          throw new Error('缺少有效的影像 ArrayBuffer');
+        }
+        const tDec0 = performance.now();
+        canvas = await decodeBufferToCanvas(m.buffer, m.mime);
+        const decodeMs = performance.now() - tDec0;
+
+        const out = await predictCanvas(canvas, m.params);
+        const wallMs = performance.now() - tStart;
+        processedCount++;
+        updateUI();
+        log(`完成辨識 #${jobId}${m.pageIndex != null ? `（第 ${m.pageIndex + 1} 頁）` : ''}：${out.items.length} 區塊｜${canvas.width}×${canvas.height}｜耗時 ${Math.round(wallMs)} ms（推論 ${Math.round(out.predictMs)} ms）`);
+
+        reply(target, origin, {
+          type: 'result',
+          id: jobId,
+          pageIndex: m.pageIndex,
+          ok: true,
+          ...out,
+          decodeMs,
+          wallMs,
+        });
+      } catch (err) {
+        const msg = String(err && err.message || err);
+        log(`辨識失敗 #${jobId}：${msg}`);
+        reply(target, origin, {
+          type: 'result',
+          id: jobId,
+          pageIndex: m.pageIndex,
+          ok: false,
+          error: msg,
+        });
+      } finally {
+        if (canvas) { canvas.width = 0; canvas.height = 0; }
+        updateUI();
+      }
+    });
+  }
+});
+
+let helloTimer = null;
+function stopHelloTimer() {
+  if (helloTimer) { clearInterval(helloTimer); helloTimer = null; }
+}
+function sendHello() {
+  if (!hostWindow || hostWindow.closed) { stopHelloTimer(); return; }
+  reply(hostWindow, '*', {
+    type: 'engine-hello',
+    mode,
+    env: getEnvInfo(),
+  });
+}
+
+if (hostWindow) {
+  sendHello();
+  helloTimer = setInterval(() => {
+    if (hostConnected) { stopHelloTimer(); return; }
+    sendHello();
+  }, 400);
+  setTimeout(stopHelloTimer, 30000);
+  log(`已以 ${mode} 模式啟動，正在向主程式發送握手訊號…`);
+} else {
+  log('目前為獨立開啟模式，可使用上方自測按鈕驗證模型下載與辨識能力。');
+}
+
+function buildSyntheticDocCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 1200;
+  c.height = 460;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  ctx.fillStyle = '#111827';
+  ctx.font = 'bold 34px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+  ctx.fillText('臺北市政府工務局水利工程處　開會通知單', 60, 82);
+
+  ctx.font = '26px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+  ctx.fillText('開會事由：河川清淤工程預算審查會議（案號 115-A028）', 60, 154);
+  ctx.fillText('開會時間：115年11月26日（星期四）上午10時30分', 60, 214);
+  ctx.fillText('核定金額：新臺幣 1,234,567 元整（預計清淤量 850.5 M3）', 60, 274);
+  ctx.fillText('聯絡信箱：water.test@gov.taipei　電話：(02)2720-8889', 60, 334);
+  ctx.fillText('備註：本測試圖用於驗證瀏覽器端 PaddleOCR 繁中與數字座標。', 60, 394);
+  return c;
+}
+
+$('btnSelfInit').addEventListener('click', async () => {
+  $('btnSelfInit').disabled = true;
+  try {
+    await initEngine({
+      model: $('stSelModel').value,
+      backend: $('stSelBackend').value,
+    });
+  } catch (_) {}
+  $('btnSelfInit').disabled = false;
+  updateUI();
+});
+
+$('btnSelfRun').addEventListener('click', async () => {
+  if (!ocrInstance) return;
+  $('btnSelfRun').disabled = true;
+  try {
+    const src = buildSyntheticDocCanvas();
+    const detLimit = Number($('stDetLimit').value) || 1600;
+    const out = await predictCanvas(src, { detLimit, detType: 'max' });
+
+    const disp = $('testCanvas');
+    disp.width = src.width;
+    disp.height = src.height;
+    const ctx = disp.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    for (const it of out.items) {
+      if (it.poly.length >= 4) {
+        ctx.beginPath();
+        ctx.moveTo(it.poly[0][0], it.poly[0][1]);
+        for (let k = 1; k < it.poly.length; k++) ctx.lineTo(it.poly[k][0], it.poly[k][1]);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+    src.width = 0; src.height = 0;
+
+    $('testPreviewWrap').style.display = 'block';
+    $('testOut').textContent =
+      `辨識完成：共 ${out.items.length} 行｜推論耗時 ${Math.round(out.predictMs)} ms｜det=${out.runtime?.detProvider || '?'} / rec=${out.runtime?.recProvider || '?'}\n` +
+      '------------------------------------------------------------\n' +
+      out.items.map((it, idx) => `${String(idx + 1).padStart(2, '0')}. [${(it.score * 100).toFixed(1)}%] ${it.text}`).join('\n');
+    log(`獨立自測完成：${out.items.length} 行，推論 ${Math.round(out.predictMs)} ms`);
+  } catch (err) {
+    log('獨立自測失敗：' + (err && err.stack || err));
+  }
+  $('btnSelfRun').disabled = !ocrInstance;
+  updateUI();
+});
+
+$('btnSelfDispose').addEventListener('click', async () => {
+  await disposeEngineInternal();
+  log('已手動釋放模型記憶體');
+});
+
+$('btnCopyLog').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(logEl.textContent);
+    log('已複製診斷紀錄至剪貼簿');
+  } catch (_) {
+    log('剪貼簿權限受限，請手動選取下方文字複製');
+  }
+});
+$('btnClearLog').addEventListener('click', () => { logEl.textContent = ''; });
+
+window.addEventListener('beforeunload', () => {
+  stopHelloTimer();
+  if (ocrInstance && typeof ocrInstance.dispose === 'function') {
+    try { ocrInstance.dispose(); } catch (_) {}
+  }
+});
+
+updateUI();
+</script>
+</body>
+</html>
